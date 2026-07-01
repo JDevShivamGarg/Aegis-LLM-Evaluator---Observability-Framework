@@ -430,11 +430,11 @@ else:
                                     st.code(row["input_prompt"], language="text")
                                     
                                     st.markdown("**Actual Response Output**")
-                                    st.code(row["actual_output"], language="text")
+                                    st.markdown(row["actual_output"])
                                     
                                     if row["expected_output"]:
                                         st.markdown("**Expected Output Reference**")
-                                        st.code(row["expected_output"], language="text")
+                                        st.markdown(row["expected_output"])
                                     
                                     st.markdown(
                                         f"<div style='font-size:0.8rem; color:#768390; margin-top:10px;'>Latency: {row['latency_ms']} ms | "
@@ -517,11 +517,11 @@ else:
                                     col_a, col_b = st.columns(2)
                                     with col_a:
                                         st.markdown("**Run A Output**")
-                                        st.code(row["actual_a"], language="text")
+                                        st.markdown(row["actual_a"])
                                         st.caption(f"Latency: {row['latency_a']}ms | Cost: ${row['cost_a']:.5f}")
                                     with col_b:
                                         st.markdown("**Run B Output**")
-                                        st.code(row["actual_b"], language="text")
+                                        st.markdown(row["actual_b"])
                                         st.caption(f"Latency: {row['latency_b']}ms | Cost: ${row['cost_b']:.5f}")
                                     st.markdown("---")
 
