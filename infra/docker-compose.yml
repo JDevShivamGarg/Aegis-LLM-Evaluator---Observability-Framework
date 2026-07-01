@@ -82,6 +82,22 @@ services:
       redis:
         condition: service_healthy
 
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    container_name: aegis_dashboard
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../src:/app/src
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/eval_db
+    command: ["streamlit", "run", "src/dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   hf_cache:

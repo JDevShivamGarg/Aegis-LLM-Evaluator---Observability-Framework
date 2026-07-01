@@ -1,0 +1,44 @@
+name: Aegis Prompt Regression Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  evaluate-prompts:
+    runs-on: ubuntu-latest
+
+    services:
+      # Optional: You can spin up Aegis inline during CI runs,
+      # or point to your persistent staging/production Aegis deployment VPN instance.
+      aegis-api:
+        image: python:3.11-slim
+        ports:
+          - 8000:8000
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run Aegis Quality Gate
+        env:
+          AEGIS_API_URL: "http://localhost:8000"  # Target self-hosted API url
+          TEST_SUITE_ID: "6ffeda93-e0e5-4372-a648-7289bc8eb6a6"  # Compliance Suite UUID
+        run: |
+          python CLI/runner.py \
+            --suite_id "$TEST_SUITE_ID" \
+            --model_name "llama-3.1-8b-instant" \
+            --prompt_version "pr-gate-${{ github.event.pull_request.number }}" \
+            --threshold 0.80 \
+            --api_url "$AEGIS_API_URL"
