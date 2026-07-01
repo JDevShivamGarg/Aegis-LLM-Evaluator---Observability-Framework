@@ -33,3 +33,46 @@ The PostgreSQL database maintains the following entities (initialized via [init.
 * **`runs`**: Execution entries documenting model names, status, and completion times.
 * **`test_results`**: Output details per test case containing token counts, latency, and actual text outputs.
 * **`metric_scores`**: Calculated metrics (e.g., cosine similarity, LLM-as-judge score) per test case result.
+
+---
+
+## 4. Client SDK Workflow Pathways
+
+Aegis supports two distinct integration pipelines for single/multi-agent loops and tool pipelines:
+
+### Pathway A: Local In-Memory Evaluator (`AegisLocalEvaluator`)
+Used inside active agent execution loops to evaluate outputs synchronously before returning results to client requests (no DB or Celery connection required).
+
+```mermaid
+graph LR
+    Agent[Agent execution loop] -->|1. check_rule| Rules[rules.py Assertions]
+    Agent -->|2. check_similarity| Sim[similarity.py Local Embeddings]
+    Agent -->|3. check_llm_judge| Judge[judge.py Groq/OpenAI Judge]
+    Rules -->|Score & Explanation| Agent
+    Sim -->|Cosine Similarity| Agent
+    Judge -->|Structured Score| Agent
+```
+
+### Pathway B: Remote API Telemetry Client (`AegisAPIClient`)
+Used to register sessions, runs, and case execution details into the persistent PostgreSQL database for historical analytics and regression dashboard visualization.
+
+```mermaid
+sequenceDiagram
+    participant Agent as Routing Agent / Pipeline
+    participant SDK as Aegis API Client
+    participant API as Aegis API Server
+    participant DB as PostgreSQL
+
+    Agent->>SDK: 1. Session start: log_run(suite_id, model, version)
+    SDK->>API: POST /v1/runs
+    API->>DB: INSERT run status (PENDING)
+    API-->>SDK: Return run_id
+    SDK-->>Agent: Return run_id
+    
+    Agent->>Agent: Execute agent logic & tool calls
+    
+    Agent->>SDK: 2. Session completed: log_results(run_id, actual_outputs, metrics)
+    SDK->>API: POST /v1/runs/{id}/results (or background worker trigger)
+    API->>DB: Update run results & calculated metric scores
+    API-->>SDK: 200 OK
+```

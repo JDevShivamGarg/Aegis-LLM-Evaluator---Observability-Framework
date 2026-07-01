@@ -10,11 +10,17 @@ Aegis is a self-hosted evaluation and observability framework designed to contin
 Aegis/
 ├── src/
 │   ├── api/            # API server endpoints (FastAPI)
-│   ├── core/           # Database pools and global settings configurations
-│   ├── services/       # Assertion logic, scoring, and embeddings evaluators (Phase 2)
+│   ├── core/           # Database pools, ORM models, and global config
+│   ├── services/       # Rule assertions, sentence embeddings, and LLM-as-judge (Phase 2)
 │   ├── repositories/   # Database query definitions and mappings
-│   ├── workers/        # Celery background workers and runners
+│   ├── workers/        # Celery background workers and task runners
+│   ├── sdk/            # Aegis Python SDK for inline evaluation and logging
+│   ├── seed.py         # Database seeder script for real-world test suites
+│   ├── agent_demo.py   # Agentic workflow SDK integration demo
 │   └── dashboard/      # Interactive Streamlit dashboards (Phase 3)
+├── docs/
+│   ├── architecture.md # Architectural design patterns and data flows
+│   └── sdk-guide.md    # Documentation for Aegis SDK clients
 ├── infra/
 │   ├── Dockerfile.api  # Build config for the FastAPI container
 │   ├── Dockerfile.worker # Build config for the Celery worker container
@@ -43,21 +49,37 @@ Aegis/
 2. **Run with Docker Compose**:
    To build and start all containers (API Server, Celery Worker, PostgreSQL database, and Redis broker) in the background, run:
    ```bash
-   docker compose -f infra/docker-compose.yml up --build -d
+   docker compose -f infra/docker-compose.yml --env-file .env up --build -d
    ```
 
 3. **Verify Health**:
    Query the API server's health status check:
    ```bash
-   curl http://localhost:8000/health
+   curl http://127.0.0.1:8000/health
    ```
    The database status should return `"healthy"`.
 
-4. **Trigger a Test Task**:
-   Enqueue a background Celery task via the API endpoint:
+4. **Seed Database with Real-World Test Suites**:
+   Run the idempotent database seeder to register RAG, PII, JSON Schema, and Compliance (Financial, Health, Legal) cases:
    ```bash
-   curl -X POST "http://localhost:8000/v1/test-task?x=10&y=20"
+   docker exec aegis_api python -m src.seed
    ```
+
+5. **Run Agentic Workflow Demo**:
+   Verify the Aegis Python SDK (local in-memory evaluator and remote telemetry logging) by executing the mock customer support routing agent demo:
+   ```bash
+   docker exec aegis_api python -m src.agent_demo
+   ```
+
+---
+
+## Aegis Python SDK
+
+Exposes two developer interfaces for single-agent and multi-agent loops:
+* **`AegisLocalEvaluator`**: Runs rule checks, regex matching, JSON schema verification, and Sentence-Transformer embedding similarities synchronously in-memory (no database required).
+* **`AegisAPIClient`**: Exposes HTTP wrappers to log project runs and telemetry to the Aegis central database.
+
+See [sdk-guide.md](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/docs/sdk-guide.md) for complete code examples.
 
 ---
 
