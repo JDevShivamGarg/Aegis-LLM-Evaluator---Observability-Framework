@@ -239,6 +239,26 @@ def seed_db():
             ]
         )
 
+        # 7. Seed Provider Pricing Rates
+        default_prices = [
+            {"provider": "groq", "model_name": "llama-3.1-8b-instant", "in_rate": 0.00005, "out_rate": 0.00008},
+            {"provider": "groq", "model_name": "llama-3.3-70b-versatile", "in_rate": 0.00059, "out_rate": 0.00079},
+            {"provider": "openai", "model_name": "gpt-4o-mini", "in_rate": 0.00015, "out_rate": 0.00060}
+        ]
+        
+        for price in default_prices:
+            existing = db.query(models.ProviderPricing).filter(models.ProviderPricing.model_name == price["model_name"]).first()
+            if not existing:
+                pp = models.ProviderPricing(
+                    id=uuid.uuid4(),
+                    provider=price["provider"],
+                    model_name=price["model_name"],
+                    input_cost_per_1k=price["in_rate"],
+                    output_cost_per_1k=price["out_rate"]
+                )
+                db.add(pp)
+                print(f"  Seeded model pricing: {price['model_name']}")
+        
         db.commit()
         print("Database seeding completed successfully.")
 

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey, func, ARRAY
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey, func, ARRAY, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from src.core.database import Base
@@ -30,6 +30,7 @@ class TestSuite(Base):
     project = relationship("Project", back_populates="suites")
     cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
     runs = relationship("Run", back_populates="suite", cascade="all, delete-orphan")
+    alerts = relationship("AlertConfig", back_populates="suite", cascade="all, delete-orphan")
 
 class TestCase(Base):
     __tablename__ = "test_cases"
@@ -55,6 +56,7 @@ class Run(Base):
     prompt_version = Column(String(50), nullable=False)
     status = Column(String(50), nullable=False, default="PENDING")
     triggered_by = Column(String(100), nullable=True)
+    total_cost_usd = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -72,6 +74,7 @@ class TestResult(Base):
     prompt_tokens = Column(Integer, nullable=True)
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
+    estimated_cost_usd = Column(Float, nullable=False, default=0.0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -91,3 +94,26 @@ class MetricScore(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     test_result = relationship("TestResult", back_populates="scores")
+
+class ProviderPricing(Base):
+    __tablename__ = "provider_pricing"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider = Column(String(50), nullable=False)
+    model_name = Column(String(100), unique=True, nullable=False)
+    input_cost_per_1k = Column(Float, nullable=False)
+    output_cost_per_1k = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+class AlertConfig(Base):
+    __tablename__ = "alert_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    suite_id = Column(UUID(as_uuid=True), ForeignKey("test_suites.id", ondelete="CASCADE"), nullable=False)
+    channel = Column(String(50), nullable=False)
+    target_url = Column(Text, nullable=False)
+    threshold = Column(Float, nullable=False, default=0.85)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    suite = relationship("TestSuite", back_populates="alerts")

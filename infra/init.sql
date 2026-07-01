@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS runs (
     prompt_version VARCHAR(50) NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
     triggered_by VARCHAR(100),
+    total_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ
 );
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS test_results (
     prompt_tokens INT,
     completion_tokens INT,
     total_tokens INT,
+    estimated_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -65,6 +67,26 @@ CREATE TABLE IF NOT EXISTS metric_scores (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS provider_pricing (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider VARCHAR(50) NOT NULL,
+    model_name VARCHAR(100) UNIQUE NOT NULL,
+    input_cost_per_1k DOUBLE PRECISION NOT NULL,
+    output_cost_per_1k DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS alert_configs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    suite_id UUID NOT NULL REFERENCES test_suites(id) ON DELETE CASCADE,
+    channel VARCHAR(50) NOT NULL, -- 'slack', 'discord', 'email', 'webhook'
+    target_url TEXT NOT NULL,
+    threshold DOUBLE PRECISION NOT NULL DEFAULT 0.85,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_suite ON runs(suite_id);
 CREATE INDEX IF NOT EXISTS idx_test_results_run ON test_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_metric_scores_result ON metric_scores(test_result_id);
+CREATE INDEX IF NOT EXISTS idx_alert_configs_suite ON alert_configs(suite_id);

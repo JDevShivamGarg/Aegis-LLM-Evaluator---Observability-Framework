@@ -5,11 +5,14 @@ from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from src.core.config import settings
 from src.core.database import SessionLocal
+from sqlalchemy import func, Column
 from src.core.models import Run, TestResult, MetricScore, TestCase, TestSuite
 from src.services.rules import evaluate_rule
 from src.services.similarity import EmbeddingSimilarityEvaluator
 from src.services.judge import LLMJudgeEvaluator
 from src.services.plugin_registry import load_custom_plugins
+from src.services.cost_tracker import calculate_token_cost
+from src.services.alerts import check_and_dispatch_alerts
 
 celery = Celery(
     "aegis_tasks",
@@ -140,6 +143,9 @@ def run_evaluation(run_id_str: str) -> str:
                 prompt=case.input_prompt
             )
 
+            # Calculate token cost
+            cost_usd = calculate_token_cost(db, run.model_name, prompt_tokens, completion_tokens)
+
             # 2. Create Test Result record
             result = TestResult(
                 id=uuid.uuid4(),
@@ -149,7 +155,8 @@ def run_evaluation(run_id_str: str) -> str:
                 latency_ms=latency_ms,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                total_tokens=total_tokens
+                total_tokens=total_tokens,
+                estimated_cost_usd=cost_usd
             )
             db.add(result)
             db.flush()  # Generate result.id for foreign keys
@@ -251,11 +258,31 @@ def run_evaluation(run_id_str: str) -> str:
             )
             db.add(metric_score)
 
+        db.flush()
+
+        # Sum up all result costs and update run total cost
+        total_cost = db.query(func.sum(TestResult.estimated_cost_usd)).filter(TestResult.run_id == run.id).scalar()
+        run.total_cost_usd = float(total_cost) if total_cost is not None else 0.0
+
+        # Get average quality score for alerting evaluation
+        avg_score_query = db.query(func.avg(MetricScore.score))\
+                            .join(TestResult, MetricScore.test_result_id == TestResult.id)\
+                            .filter(TestResult.run_id == run.id)\
+                            .scalar()
+        avg_score = float(avg_score_query) if avg_score_query is not None else 0.0
+
         # Update run status
         import datetime
         run.status = "COMPLETED"
         run.completed_at = datetime.datetime.now(datetime.timezone.utc)
         db.commit()
+
+        # Dispatch regression webhooks alerting
+        try:
+            check_and_dispatch_alerts(db, str(run.id), avg_score)
+        except Exception as alert_err:
+            print(f"Alerting dispatch failed: {alert_err}")
+
         return f"Run {run_id_str} completed successfully."
 
     except Exception as e:
