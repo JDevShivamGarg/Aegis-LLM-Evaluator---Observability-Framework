@@ -55,3 +55,86 @@ You must output ONLY a valid JSON object matching this schema:
 ### Parameter Controls
 * **Temperature**: Explicitly set to `0.0` to ensure reproducible scores.
 * **Fallback**: If the LLM judge fails to return a JSON payload or times out, the engine defaults to a score of `0.0` and logs the exception traceback.
+
+---
+
+## 4. Custom Metric Plugins
+
+Aegis supports user-defined custom evaluation scoring logic through a dynamic plugin system. Custom evaluators must inherit from the `BaseEvaluator` abstract class and reside within the `src/plugins/` directory.
+
+### Implementing a Plugin
+
+To create a plugin, implement the `BaseEvaluator` contract in `src/services/base_evaluator.py`:
+
+```python
+from src.services.base_evaluator import BaseEvaluator
+
+class CustomEvaluator(BaseEvaluator):
+    @property
+    def metric_name(self) -> str:
+        return "My Custom Metric"
+
+    @property
+    def metric_type(self) -> str:
+        return "CUSTOM_EVALUATOR"
+
+    def score(self, prompt: str, expected: str, actual: str, context_documents: list[str] = None) -> tuple[float, str]:
+        # Perform scoring logic here
+        score = 1.0
+        explanation = "Passes custom requirements"
+        return score, explanation
+```
+
+### Configuration
+Enable custom plugins by listing their `metric_name` in the test suite's `custom_evaluators` (JSONB) configuration array:
+`custom_evaluators = ["My Custom Metric"]`
+
+---
+
+## 5. Multi-Judge Consensus Engine
+
+Aegis can run evaluations across multiple LLM judges concurrently, combining scores to eliminate single-judge bias.
+
+### Configuration
+Set the `judge_config` column in the `test_suites` table to a list of provider/model specifications:
+```json
+[
+  {"provider": "groq", "model": "llama-3.1-8b-instant"},
+  {"provider": "groq", "model": "llama-3.3-70b-versatile"}
+]
+```
+
+### Scoring Logic
+* **Fan-out**: Worker threads invoke all configured judges in parallel.
+* **Consensus**: The final score is the mathematical mean of all individual judge scores.
+* **Aggregated Justifications**: Explanations from each judge are merged into a single transparent log:
+  ```text
+  Judge 1 (llama-3.1-8b-instant): Score=0.85. Explanation...
+  
+  Judge 2 (llama-3.3-70b-versatile): Score=0.90. Explanation...
+  ```
+
+---
+
+## 6. Toxicity & Bias Detection
+
+Aegis includes a built-in safety checker plugin (`Toxicity Check`) to detect harmful content locally.
+
+* **Model Used**: `unitary/unbiased-toxic-roberta` (cached locally in the worker container for air-gapped support).
+* **Metric Classification**: `TOXICITY_CLASSIFIER`.
+* **Formula**:
+  $$\text{Aegis Quality Score} = 1.0 - \text{Toxicity Probability}$$
+* **Threshold**: Outputs with a toxicity probability above `0.50` are automatically flagged with `"Toxic content detected"`.
+
+---
+
+## 7. RAG Hallucination Grounding
+
+The `RAG Grounding Score` plugin evaluates whether generated responses are semantically supported by retrieved knowledge documents.
+
+* **Trigger**: Automatically runs if test cases populate the `context_documents` array.
+* **Heuristics**:
+  1. Splits the actual output completion into individual sentences.
+  2. Encodes each sentence using the local Sentence-Transformers model.
+  3. Computes the cosine similarity of each sentence against the retrieved `context_documents` chunks.
+  4. Yields a score representing the mean of the maximum chunk similarities for each sentence. Sentences scoring below `0.60` are flagged as potential hallucinations.

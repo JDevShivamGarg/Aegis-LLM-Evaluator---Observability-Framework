@@ -28,11 +28,11 @@ graph TD
 The PostgreSQL database maintains the following entities (initialized via [init.sql](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/infra/init.sql)):
 
 * **`projects`**: Top-level namespace grouping test suites.
-* **`test_suites`**: Logical groupings of related test cases.
-* **`test_cases`**: Test specifications holding prompts, expected outputs, and assertion rules.
+* **`test_suites`**: Logical groupings of related test cases. Stores active scoring settings including custom plugin tags (`custom_evaluators` JSONB) and consensus judges configuration (`judge_config` JSONB).
+* **`test_cases`**: Test specifications holding prompts, expected outputs, assertion rules, and optional retrieved retrieval context texts (`context_documents` TEXT[]).
 * **`runs`**: Execution entries documenting model names, status, and completion times.
 * **`test_results`**: Output details per test case containing token counts, latency, and actual text outputs.
-* **`metric_scores`**: Calculated metrics (e.g., cosine similarity, LLM-as-judge score) per test case result.
+* **`metric_scores`**: Calculated metrics (e.g., cosine similarity, LLM-as-judge score, custom plugin scores, toxicity) per test case result.
 
 ---
 

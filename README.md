@@ -92,6 +92,18 @@ See [sdk-guide.md](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/docs/sdk-guide.
 
 ---
 
+## Advanced Evaluation Engine Features
+
+Aegis implements specialized metrics to expand validation coverage:
+* **Custom Metric Plugins**: Register custom Python scoring functions (inheriting from `BaseEvaluator`) in `src/plugins/` to implement custom checks (e.g. bias, containment, or formatting). Enabled via suite configurations.
+* **Multi-Judge Consensus**: Configure multiple parallel LLM judges (e.g., GPT-4o and Llama-3.3) under `judge_config` to eliminate single-judge bias. The final score represents the mean score, with aggregated reasoning.
+* **Local Toxicity Classifier**: A built-in plugin (`Toxicity Check`) using `unbiased-toxic-roberta` running locally inside the worker container to flag offensive outputs without sending data to third parties.
+* **RAG Hallucination Grounding**: Dynamically triggered when test cases contain `context_documents` arrays, evaluating whether output sentences are semantically grounded in retrieved chunks using sentence-level cosine similarities.
+
+See [evaluators-guide.md](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/docs/evaluators-guide.md) for configurations and setup instructions.
+
+---
+
 ## Observability Dashboard
 
 Aegis includes a full-width real-time dashboard built with Streamlit and Plotly to monitor quality scores, track regression trends, and debug failed cases.
