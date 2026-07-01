@@ -4,6 +4,14 @@ Aegis is a self-hosted evaluation and observability framework designed to contin
 
 ---
 
+## Genesis
+
+* **Problem Observed**: Minor changes to prompts often silently regress model performance on edge cases, which usually goes undetected until customer complaints spike. Traditional validation requires hours of manual scratchpad comparisons per iteration.
+* **SaaS Limitations**: Leading telemetry systems operate entirely as SaaS products. Due to strict corporate data compliance policies, sending proprietary prompts, system history datasets, and generated outputs to external third-party servers is prohibited.
+* **Hypothesis**: By running an air-gapped evaluation framework locally behind a VPN, development teams can safely validate regressions in pipeline runs and block bad updates before they reach production.
+
+---
+
 ## Repository Structure
 
 ```text
@@ -20,7 +28,8 @@ Aegis/
 │   └── dashboard/      # Interactive Streamlit dashboards (Phase 3)
 ├── docs/
 │   ├── architecture.md # Architectural design patterns and data flows
-│   └── sdk-guide.md    # Documentation for Aegis SDK clients
+│   ├── sdk-guide.md    # Documentation for Aegis SDK clients
+│   └── evaluators-guide.md # Reference guide for rules, similarity, and LLM-as-judge scoring
 ├── infra/
 │   ├── Dockerfile.api  # Build config for the FastAPI container
 │   ├── Dockerfile.worker # Build config for the Celery worker container
@@ -80,6 +89,36 @@ Exposes two developer interfaces for single-agent and multi-agent loops:
 * **`AegisAPIClient`**: Exposes HTTP wrappers to log project runs and telemetry to the Aegis central database.
 
 See [sdk-guide.md](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/docs/sdk-guide.md) for complete code examples.
+
+---
+
+## Observability Dashboard
+
+Aegis includes a full-width real-time dashboard built with Streamlit and Plotly to monitor quality scores, track regression trends, and debug failed cases.
+* **Access URL**: Open your browser and go to `http://localhost:8501`.
+* **Features**:
+  - **Dynamic Context Dropdowns**: Easily select Projects and Test Suites from the top-bar columns.
+  - **Metric Summary Cards**: View overall run counts, success rates, average quality scores, and latency trends.
+  - **Performance Trendline**: Interactive Plotly line charts plotting historical scores over prompt versions.
+  - **Tabbed Run Results**: Switch between test case tabs to inspect the prompt input, actual model output, expected target, and token usages.
+  - **Color-Coded Badges**: Evaluated check status metrics rendered as green/orange/red badges (`PASS` / `WARN` / `FAIL`).
+
+---
+
+## CI/CD Regression Gating
+
+Integrate prompt gating into code delivery pipelines using the python client runner script:
+```bash
+python CLI/runner.py \
+  --suite_id "<SUITE_UUID>" \
+  --model_name "llama-3.1-8b-instant" \
+  --prompt_version "v1.1" \
+  --threshold 0.85 \
+  --api_url "http://localhost:8000"
+```
+The runner polls the Aegis server and returns exit code `0` on success or `1` if quality falls below the specified threshold, blocking the deployment.
+
+See the Actions template in [.github/workflows/aegis-gate.yml](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/.github/workflows/aegis-gate.yml).
 
 ---
 
