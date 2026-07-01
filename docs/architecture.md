@@ -30,9 +30,11 @@ The PostgreSQL database maintains the following entities (initialized via [init.
 * **`projects`**: Top-level namespace grouping test suites.
 * **`test_suites`**: Logical groupings of related test cases. Stores active scoring settings including custom plugin tags (`custom_evaluators` JSONB) and consensus judges configuration (`judge_config` JSONB).
 * **`test_cases`**: Test specifications holding prompts, expected outputs, assertion rules, and optional retrieved retrieval context texts (`context_documents` TEXT[]).
-* **`runs`**: Execution entries documenting model names, status, and completion times.
-* **`test_results`**: Output details per test case containing token counts, latency, and actual text outputs.
+* **`runs`**: Execution entries documenting model names, status, completion times, and cumulative run token cost calculations (`total_cost_usd`).
+* **`test_results`**: Output details per test case containing token counts, latency, actual text outputs, and itemized token costs (`estimated_cost_usd`).
 * **`metric_scores`**: Calculated metrics (e.g., cosine similarity, LLM-as-judge score, custom plugin scores, toxicity) per test case result.
+* **`provider_pricing`**: Dynamic token price configurations (input/output per 1k tokens) matching model names.
+* **`alert_configs`**: Alert channel destinations (Slack, Discord, custom webhooks) configured with quality regression score thresholds.
 
 ---
 

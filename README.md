@@ -108,12 +108,13 @@ See [evaluators-guide.md](file:///C:/Users/loyal/OneDrive/Desktop/Aegis/docs/eva
 
 Aegis includes a full-width real-time dashboard built with Streamlit and Plotly to monitor quality scores, track regression trends, and debug failed cases.
 * **Access URL**: Open your browser and go to `http://localhost:8501`.
-* **Features**:
-  - **Dynamic Context Dropdowns**: Easily select Projects and Test Suites from the top-bar columns.
-  - **Metric Summary Cards**: View overall run counts, success rates, average quality scores, and latency trends.
-  - **Performance Trendline**: Interactive Plotly line charts plotting historical scores over prompt versions.
-  - **Tabbed Run Results**: Switch between test case tabs to inspect the prompt input, actual model output, expected target, and token usages.
-  - **Color-Coded Badges**: Evaluated check status metrics rendered as green/orange/red badges (`PASS` / `WARN` / `FAIL`).
+* **Observability Tabs**:
+  - **Overview**: View metrics summary cards (run execution counts, average quality score, latency, and estimated token USD costs), version performance trendlines, registry lists, and case drill-downs.
+  - **A/B Comparison**: Compares two prompt evaluation runs side-by-side to highlight output changes and delta scoring regressions.
+  - **Regression Heatmap**: Plotly matrix heatmap visualizing quality transitions across the last 10 completed runs case-by-case.
+  - **Alert Configs**: CRUD interface to register Slack, Discord, and webhook alert triggers with custom sliders for regression thresholds.
+* **Formatted Markdown Rendering**: Model completions render using structured markdown parser for rich text (bolding, bullet points, headers) readability.
+* **Color-Coded Status Badges**: Metrics evaluation scores flagged using clean green/orange/red badges (`PASS` / `WARN` / `FAIL`).
 
 ---
 
