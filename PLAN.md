@@ -624,15 +624,110 @@ At 500K runs/mo, LLM API costs (specifically OpenAI GPT-4 judge calls) will domi
 
 ## 25. Future Work
 
-**Phase 1 — Production Shadow Evaluations**  
-Trigger: When production query volume using target LLMs exceeds 10,000 requests per day.  
-- [ ] Deploy log streaming middleware to queue live traffic samples into evaluation test suites.
-- [ ] Build automated clustering tools to detect out-of-distribution queries.
+### Phase A — Evaluation Engine Depth
 
-**Phase 2 — Local Fine-Tuned Judge Model**  
-Trigger: When external LLM-as-judge API billing costs exceed $1,000/mo.  
-- [ ] Train a local 8B parameter model (e.g. Llama-3-8B-Instruct) on historical GPT-4 judge score outputs.
-- [ ] Deploy the local judge container on worker clusters.
+**A.1 Custom Metric Plugins**
+Trigger: When teams need domain-specific scoring beyond built-in rules.
+- [ ] Define `BaseEvaluator` abstract class with `score(prompt, expected, actual) -> (float, str)` contract.
+- [ ] Create plugin registry (`src/services/plugin_registry.py`) for dynamic evaluator class loading.
+- [ ] Add `custom_evaluators JSONB` column to `test_suites` for per-suite plugin configuration.
+
+**A.2 Multi-Judge Consensus**
+Trigger: When single-judge LLM scoring shows high variance across repeated runs.
+- [ ] Extend `test_suites` with `judge_config JSONB` specifying multiple provider/model pairs.
+- [ ] Fan out concurrent judge calls using Celery chord patterns.
+- [ ] Compute consensus metrics: mean score, standard deviation, inter-judge agreement.
+
+**A.3 Toxicity & Bias Detection**
+Trigger: When deploying customer-facing agents handling sensitive demographics or moderation.
+- [ ] Integrate local toxicity classifier (e.g., `unitary/toxic-bert`) running inside the worker container.
+- [ ] Implement as a plugin evaluator with `metric_type = "TOXICITY_CLASSIFIER"`.
+- [ ] Cache model in `hf_cache` Docker volume.
+
+**A.4 Hallucination Grounding Score**
+Trigger: When RAG pipeline faithfulness verification is critical.
+- [ ] Add `context_documents TEXT[]` column to `test_cases` for storing retrieved source chunks.
+- [ ] Implement claim-level grounding evaluator: split output into sentences, compute max similarity against each chunk.
+- [ ] Flag claims below configurable similarity threshold as potentially hallucinated.
+
+---
+
+### Phase B — Observability & Analytics
+
+**B.1 A/B Prompt Comparison View**
+Trigger: When teams need side-by-side diff analysis of prompt version performance.
+- [ ] Add "Comparison Mode" tab to the Streamlit dashboard.
+- [ ] Render dual-run selection with per-case delta score highlighting.
+- [ ] Add Plotly grouped bar chart comparing per-metric scores between runs.
+
+**B.2 Alerting & Webhooks**
+Trigger: When automated notifications are needed for quality drops.
+- [ ] Create `alert_configs` table: `suite_id`, `channel` (slack/email/discord/webhook), `target_url`, `threshold`.
+- [ ] Dispatch notifications asynchronously via dedicated Celery task (`send_alert`).
+- [ ] Add CRUD endpoints for alert configuration management.
+
+**B.3 Token Cost Tracking**
+Trigger: When API cost visibility is required per evaluation run.
+- [ ] Create `provider_pricing` table mapping `(provider, model)` to per-1k token costs.
+- [ ] Compute and store `estimated_cost_usd` on `test_results` and aggregate `total_cost_usd` on `runs`.
+- [ ] Display cost breakdowns on dashboard metric cards.
+
+**B.4 Historical Regression Heatmaps**
+Trigger: When teams need visual regression analysis across test cases over time.
+- [ ] Add "Heatmap" tab to Streamlit dashboard.
+- [ ] Query last N runs, pivot into matrix (rows = test cases, columns = versions, cells = scores).
+- [ ] Render using Plotly `imshow` with diverging red-yellow-green color scale.
+
+---
+
+### Phase C — Platform & Integration
+
+**C.1 Multi-Tenant RBAC**
+Trigger: When multiple team members need differentiated access levels.
+- [ ] Extend existing JWT payload with `role` claim (`admin`, `runner`, `viewer`).
+- [ ] Create `users` and `user_project_roles` tables.
+- [ ] Implement FastAPI dependency guards (`require_role()`) on route handlers.
+
+**C.2 LangChain / CrewAI / AutoGen Callbacks**
+Trigger: When teams use popular agent frameworks and need automatic trace logging.
+- [ ] Implement `AegisLangChainCallback(BaseCallbackHandler)` hooking into `on_llm_end`, `on_chain_end`.
+- [ ] Provide similar adapters for CrewAI and AutoGen.
+- [ ] Package as optional SDK extras: `from aegis.integrations.langchain import AegisLangChainCallback`.
+
+**C.3 OpenTelemetry Span Export**
+Trigger: When teams use Grafana, Datadog, or Jaeger for centralized observability.
+- [ ] Instrument FastAPI and Celery with `opentelemetry-instrumentation-*` packages.
+- [ ] Create custom spans: `aegis.rule_assertion`, `aegis.embedding_similarity`, `aegis.llm_judge`.
+- [ ] Configure OTLP exporter via `OTEL_EXPORTER_OTLP_ENDPOINT` env var.
+
+**C.4 Prompt Versioning & Diff Engine**
+Trigger: When prompt template changes need to be correlated with score regressions.
+- [ ] Create `prompt_versions` table storing immutable template snapshots with version tags.
+- [ ] Implement diff utility using Python `difflib` for line-level version comparison.
+- [ ] Add "Prompt History" tab to dashboard showing version timeline and correlated score changes.
+
+---
+
+### Phase D — Scale & Reliability
+
+**D.1 Batch Evaluation Mode**
+Trigger: When evaluation datasets grow beyond 100 manually entered test cases.
+- [ ] Add `POST /v1/suites/{id}/upload` endpoint accepting CSV/JSONL multipart uploads.
+- [ ] Batch insert using SQLAlchemy `bulk_save_objects`.
+- [ ] Chunk large datasets (>1000 cases) into parallel sub-tasks via Celery `group` primitives.
+
+**D.2 Kubernetes Autoscaling**
+Trigger: When evaluation queue depth regularly exceeds worker capacity.
+- [ ] Create Kubernetes manifests (`k8s/`) for all services: API, Worker, Dashboard, PostgreSQL, Redis.
+- [ ] Configure KEDA ScaledObject on Worker Deployment with Redis queue depth trigger.
+- [ ] Set scaling policy: scale up at >10 pending tasks, scale down after 5 min idle, max 8 replicas.
+
+**D.3 Result Caching & Deduplication**
+Trigger: When repeated evaluations of identical inputs waste API budget.
+- [ ] Compute deterministic cache key: `SHA256(model_name + prompt_version + input_prompt + rules)`.
+- [ ] Check Redis cache (24h TTL) before LLM call; reuse cached output on hit.
+- [ ] Add `cache_hit BOOLEAN` column to `test_results` for observability.
+- [ ] Provide `POST /v1/cache/invalidate` endpoint for manual cache flush.
 
 ---
 
