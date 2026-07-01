@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download model beforehand or copy code (sentence-transformers loads on boot or task initialization)
+# Let's ensure sentence-transformers has cached path or just download on import
+# We can download a small model to make local embeddings runs fast
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+COPY src/ ./src/
+
+CMD ["celery", "-A", "src.workers.celery_app.celery", "worker", "--loglevel=info", "-c", "4"]
