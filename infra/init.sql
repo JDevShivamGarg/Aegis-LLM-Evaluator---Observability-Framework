@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS test_suites (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    custom_evaluators JSONB NOT NULL DEFAULT '[]'::jsonb,
+    judge_config JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS test_cases (
     input_prompt TEXT NOT NULL,
     expected_output TEXT,
     assertion_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+    context_documents TEXT[] DEFAULT '{}'::text[],
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

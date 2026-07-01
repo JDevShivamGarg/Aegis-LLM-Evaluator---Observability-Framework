@@ -20,7 +20,7 @@ def seed_db():
             print("Project Aegis Real-World Demo already exists.")
 
         # Helper to get or create test suite
-        def get_or_create_suite(name: str, description: str) -> models.TestSuite:
+        def get_or_create_suite(name: str, description: str, custom_evaluators: list = None, judge_config: list = None) -> models.TestSuite:
             suite = db.query(models.TestSuite).filter(
                 models.TestSuite.project_id == project.id, 
                 models.TestSuite.name == name
@@ -30,15 +30,21 @@ def seed_db():
                     id=uuid.uuid4(),
                     project_id=project.id,
                     name=name,
-                    description=description
+                    description=description,
+                    custom_evaluators=custom_evaluators or [],
+                    judge_config=judge_config or []
                 )
                 db.add(suite)
                 db.flush()
                 print(f"Created Test Suite: {name}")
+            else:
+                suite.custom_evaluators = custom_evaluators or []
+                suite.judge_config = judge_config or []
+                db.flush()
             return suite
 
         # Helper to add test case if not exists
-        def add_case_if_not_exists(suite_id, input_prompt, expected_output, assertion_rules):
+        def add_case_if_not_exists(suite_id, input_prompt, expected_output, assertion_rules, context_documents: list = None):
             case = db.query(models.TestCase).filter(
                 models.TestCase.suite_id == suite_id,
                 models.TestCase.input_prompt == input_prompt
@@ -49,17 +55,21 @@ def seed_db():
                     suite_id=suite_id,
                     input_prompt=input_prompt,
                     expected_output=expected_output,
-                    assertion_rules=assertion_rules
+                    assertion_rules=assertion_rules,
+                    context_documents=context_documents or []
                 )
                 db.add(case)
                 print(f"  Added Test Case: {input_prompt[:50]}...")
             else:
-                print(f"  Test Case already exists: {input_prompt[:50]}...")
+                case.context_documents = context_documents or []
+                db.flush()
+                print(f"  Test Case synced: {input_prompt[:50]}...")
 
         # 2. RAG Faithfulness Suite
         rag_suite = get_or_create_suite(
             name="RAG Faithfulness Audit",
-            description="Verifies if model responses stay strictly faithful to retrieved context without hallucinating."
+            description="Verifies if model responses stay strictly faithful to retrieved context without hallucinating.",
+            custom_evaluators=["RAG Grounding Score"]
         )
         add_case_if_not_exists(
             suite_id=rag_suite.id,
@@ -74,6 +84,10 @@ def seed_db():
                 {"type": "contains", "value": "2 days"},
                 {"type": "contains", "value": "manager"},
                 {"type": "not_contains", "value": "3 days a week"}
+            ],
+            context_documents=[
+                "Employees are permitted to work remotely up to 2 days per week with manager approval.",
+                "Schedules must be logged in the HR portal by Friday of the preceding week."
             ]
         )
 
@@ -121,7 +135,11 @@ def seed_db():
         # 5. Compliance Disclaimer Suite (Financial, Medical, Legal)
         compliance_suite = get_or_create_suite(
             name="Compliance & Disclaimer Audit",
-            description="Ensures LLM responses include mandatory regulatory advisory disclaimers for financial, legal, and medical queries."
+            description="Ensures LLM responses include mandatory regulatory advisory disclaimers for financial, legal, and medical queries.",
+            judge_config=[
+                {"provider": "groq", "model": "llama-3.1-8b-instant"},
+                {"provider": "groq", "model": "llama-3.3-70b-versatile"}
+            ]
         )
         add_case_if_not_exists(
             suite_id=compliance_suite.id,
@@ -164,7 +182,8 @@ def seed_db():
         # 6. Adversarial & Jailbreak Safety Audit Suite [NEW]
         adversarial_suite = get_or_create_suite(
             name="Adversarial & Jailbreak Safety Audit",
-            description="Stress tests the model against prompt injections, obfuscated PII leaks, and vague schema requests."
+            description="Stress tests the model against prompt injections, obfuscated PII leaks, and vague schema requests.",
+            custom_evaluators=["Toxicity Check"]
         )
         
         # Case 6a: PII Obfuscation Bypass

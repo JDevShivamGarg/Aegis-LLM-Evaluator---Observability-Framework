@@ -5,10 +5,11 @@ from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from src.core.config import settings
 from src.core.database import SessionLocal
-from src.core.models import Run, TestResult, MetricScore, TestCase
+from src.core.models import Run, TestResult, MetricScore, TestCase, TestSuite
 from src.services.rules import evaluate_rule
 from src.services.similarity import EmbeddingSimilarityEvaluator
 from src.services.judge import LLMJudgeEvaluator
+from src.services.plugin_registry import load_custom_plugins
 
 celery = Celery(
     "aegis_tasks",
@@ -111,9 +112,26 @@ def run_evaluation(run_id_str: str) -> str:
             db.commit()
             return f"No test cases found for suite {run.suite_id}."
 
-        # Setup LLM Judge (use Groq as judge by default)
-        judge_provider = "groq" if settings.GROQ_API_KEY != "gsk-placeholder" else "openai"
-        llm_judge = LLMJudgeEvaluator(provider=judge_provider)
+        # Fetch test suite configuration
+        suite = db.query(TestSuite).filter(TestSuite.id == run.suite_id).first()
+
+        # Setup LLM Judges (Multi-Judge Consensus support)
+        judges = []
+        judge_config = getattr(suite, "judge_config", []) or []
+        if isinstance(judge_config, list) and len(judge_config) > 0:
+            for j_cfg in judge_config:
+                judges.append(LLMJudgeEvaluator(
+                    provider=j_cfg.get("provider", "groq"),
+                    model=j_cfg.get("model"),
+                    api_key=j_cfg.get("api_key"),
+                    base_url=j_cfg.get("base_url")
+                ))
+        else:
+            judge_provider = "groq" if settings.GROQ_API_KEY != "gsk-placeholder" else "openai"
+            judges.append(LLMJudgeEvaluator(provider=judge_provider))
+
+        # Load Custom Evaluator Plugins
+        custom_plugins = load_custom_plugins()
 
         for case in cases:
             # 1. Execute Target LLM Call
@@ -169,19 +187,67 @@ def run_evaluation(run_id_str: str) -> str:
                     )
                     db.add(metric_score)
 
-            # 5. Evaluate via LLM-As-Judge (optional, trigger if expected or configured)
-            judge_score, judge_explanation = llm_judge.judge(
-                prompt=case.input_prompt,
-                expected=case.expected_output,
-                actual=actual_output
-            )
+            # 5. Evaluate Custom Plugins (Toxicity, Grounding, etc.)
+            enabled_custom_evals = getattr(suite, "custom_evaluators", []) or []
+            for plugin in custom_plugins:
+                run_plugin = False
+                if isinstance(enabled_custom_evals, list) and len(enabled_custom_evals) > 0:
+                    if plugin.metric_name in enabled_custom_evals:
+                        run_plugin = True
+                else:
+                    # Default/Fallback heuristic if test suite custom_evaluators is empty:
+                    if plugin.metric_name == "RAG Grounding Score":
+                        # Only run grounding check if case context_documents are populated
+                        context_docs = getattr(case, "context_documents", None)
+                        if isinstance(context_docs, list) and len(context_docs) > 0:
+                            run_plugin = True
+                    else:
+                        # Enable general safety checkers (like Toxicity) by default
+                        run_plugin = True
+
+                if run_plugin:
+                    try:
+                        context_docs = getattr(case, "context_documents", None) or []
+                        plugin_score, plugin_explanation = plugin.score(
+                            prompt=case.input_prompt,
+                            expected=case.expected_output or "",
+                            actual=actual_output,
+                            context_documents=context_docs
+                        )
+                        metric_score = MetricScore(
+                            id=uuid.uuid4(),
+                            test_result_id=result.id,
+                            metric_name=plugin.metric_name,
+                            metric_type=plugin.metric_type,
+                            score=plugin_score,
+                            explanation=plugin_explanation
+                        )
+                        db.add(metric_score)
+                    except Exception as plugin_err:
+                        print(f"Error running custom plugin {plugin.metric_name}: {plugin_err}")
+
+            # 6. Evaluate via LLM-As-Judge (Multi-Judge Consensus support)
+            judge_scores = []
+            judge_explanations = []
+            for j_idx, j_evaluator in enumerate(judges):
+                j_score, j_explanation = j_evaluator.judge(
+                    prompt=case.input_prompt,
+                    expected=case.expected_output,
+                    actual=actual_output
+                )
+                judge_scores.append(j_score)
+                judge_explanations.append(f"Judge {j_idx + 1} ({j_evaluator.model}): Score={j_score}. {j_explanation}")
+
+            consensus_score = sum(judge_scores) / len(judge_scores)
+            combined_explanation = "\n\n".join(judge_explanations)
+
             metric_score = MetricScore(
                 id=uuid.uuid4(),
                 test_result_id=result.id,
                 metric_name="LLM-As-Judge",
                 metric_type="LLM_JUDGE",
-                score=judge_score,
-                explanation=judge_explanation
+                score=consensus_score,
+                explanation=combined_explanation
             )
             db.add(metric_score)
 

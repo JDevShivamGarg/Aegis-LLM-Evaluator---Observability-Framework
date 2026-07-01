@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey, func
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey, func, ARRAY
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from src.core.database import Base
@@ -22,6 +22,8 @@ class TestSuite(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    custom_evaluators = Column(JSONB, nullable=False, server_default="[]")
+    judge_config = Column(JSONB, nullable=False, server_default="[]")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -37,6 +39,7 @@ class TestCase(Base):
     input_prompt = Column(Text, nullable=False)
     expected_output = Column(Text, nullable=True)
     assertion_rules = Column(JSONB, nullable=False, server_default="[]")
+    context_documents = Column(ARRAY(Text), nullable=False, server_default="{}")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

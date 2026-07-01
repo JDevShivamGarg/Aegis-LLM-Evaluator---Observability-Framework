@@ -4,19 +4,20 @@ from src.core.config import settings
 
 class LLMJudgeEvaluator:
     """Invokes an LLM to judge the quality of actual output against expectations and prompts."""
-    def __init__(self, provider: str = "groq"):
+    def __init__(self, provider: str = "groq", model: str = None, api_key: str = None, base_url: str = None):
         self.provider = provider.lower()
         if self.provider == "groq":
             self.client = OpenAI(
-                api_key=settings.GROQ_API_KEY,
-                base_url="https://api.groq.com/openai/v1"
+                api_key=api_key or settings.GROQ_API_KEY,
+                base_url=base_url or "https://api.groq.com/openai/v1"
             )
-            self.model = "llama-3.1-8b-instant"  # Default lightweight Groq model
+            self.model = model or "llama-3.1-8b-instant"
         else:
             self.client = OpenAI(
-                api_key=settings.OPENAI_API_KEY
+                api_key=api_key or settings.OPENAI_API_KEY,
+                base_url=base_url or "https://api.openai.com/v1"
             )
-            self.model = "gpt-4o-mini"
+            self.model = model or "gpt-4o-mini"
 
     def judge(self, prompt: str, expected: str | None, actual: str) -> tuple[float, str]:
         """
