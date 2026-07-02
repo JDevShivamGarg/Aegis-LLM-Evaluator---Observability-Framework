@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey, func, ARRAY, Boolean
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey, func, ARRAY, Boolean, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from src.core.database import Base
@@ -31,6 +31,7 @@ class TestSuite(Base):
     cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
     runs = relationship("Run", back_populates="suite", cascade="all, delete-orphan")
     alerts = relationship("AlertConfig", back_populates="suite", cascade="all, delete-orphan")
+    prompt_versions = relationship("PromptVersion", back_populates="suite", cascade="all, delete-orphan")
 
 class TestCase(Base):
     __tablename__ = "test_cases"
@@ -117,3 +118,37 @@ class AlertConfig(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     suite = relationship("TestSuite", back_populates="alerts")
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String(100), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+class UserProjectRole(Base):
+    __tablename__ = "user_project_roles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(50), nullable=False)  # 'admin', 'editor', 'viewer'
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'project_id', name='uq_user_project_role'),
+    )
+
+class PromptVersion(Base):
+    __tablename__ = "prompt_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    suite_id = Column(UUID(as_uuid=True), ForeignKey("test_suites.id", ondelete="CASCADE"), nullable=False)
+    version_tag = Column(String(50), nullable=False)
+    template_body = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    suite = relationship("TestSuite", back_populates="prompt_versions")

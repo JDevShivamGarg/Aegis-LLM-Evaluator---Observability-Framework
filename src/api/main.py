@@ -1,12 +1,19 @@
 import uuid
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from src.core.database import get_db
 from src.core import models
 from src.workers.celery_app import test_task
+from src.core.auth import (
+    hash_password,
+    verify_password,
+    create_jwt_token,
+    get_current_user,
+    check_user_role
+)
 
 app = FastAPI(
     title="Aegis API Server",
@@ -15,6 +22,15 @@ app = FastAPI(
 )
 
 # === Pydantic Request Models ===
+
+class UserAuthSchema(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+
+class ProjectRoleAssign(BaseModel):
+    username: str
+    role: str # 'admin', 'editor', 'viewer'
 
 class ProjectCreate(BaseModel):
     name: str
@@ -37,6 +53,33 @@ class RunCreate(BaseModel):
     model_name: str
     prompt_version: str
 
+# === Auth Routes ===
+
+@app.post("/v1/auth/register", status_code=201)
+def register_user(payload: UserAuthSchema, db: Session = Depends(get_db)):
+    existing = db.query(models.User).filter(models.User.username == payload.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+        
+    user = models.User(
+        id=uuid.uuid4(),
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        email=payload.email
+    )
+    db.add(user)
+    db.commit()
+    return {"message": "User registered successfully", "username": user.username}
+
+@app.post("/v1/auth/login")
+def login_user(payload: UserAuthSchema, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == payload.username).first()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+    token = create_jwt_token({"sub": user.username})
+    return {"access_token": token, "token_type": "bearer"}
+
 # === API Route Handlers ===
 
 @app.get("/")
@@ -57,7 +100,11 @@ def health_check(db: Session = Depends(get_db)):
     }
 
 @app.post("/v1/projects", status_code=201)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    payload: ProjectCreate, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
     db_project = db.query(models.Project).filter(models.Project.name == payload.name).first()
     if db_project:
         raise HTTPException(status_code=400, detail="Project with this name already exists")
@@ -68,17 +115,76 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
         description=payload.description
     )
     db.add(project)
+    db.flush()
+    
+    # Auto-assign creator as Project admin
+    role_entry = models.UserProjectRole(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        project_id=project.id,
+        role="admin"
+    )
+    db.add(role_entry)
     db.commit()
     db.refresh(project)
+    
     return {
         "id": str(project.id),
         "name": project.name,
         "description": project.description,
         "created_at": project.created_at
     }
+@app.post("/v1/projects/{project_id}/roles")
+def assign_project_role(
+    project_id: str, 
+    payload: ProjectRoleAssign, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
+    try:
+        proj_uuid = uuid.UUID(project_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project UUID format")
+        
+    # Check if target user exists
+    target_user = db.query(models.User).filter(models.User.username == payload.username).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+        
+    # Enforce that only project Admins can assign roles
+    check_user_role(db, user, project_id, ["admin"])
+    
+    # Check valid role values
+    if payload.role not in ["admin", "editor", "viewer"]:
+        raise HTTPException(status_code=400, detail="Invalid role. Must be admin, editor, or viewer")
+        
+    # Create or update role
+    role_entry = db.query(models.UserProjectRole).filter(
+        models.UserProjectRole.user_id == target_user.id,
+        models.UserProjectRole.project_id == proj_uuid
+    ).first()
+    
+    if role_entry:
+        role_entry.role = payload.role
+    else:
+        role_entry = models.UserProjectRole(
+            id=uuid.uuid4(),
+            user_id=target_user.id,
+            project_id=proj_uuid,
+            role=payload.role
+        )
+        db.add(role_entry)
+        
+    db.commit()
+    return {"message": f"Successfully assigned role {payload.role} to user {payload.username}"}
 
 @app.post("/v1/projects/{project_id}/suites", status_code=201)
-def create_suite(project_id: str, payload: SuiteCreate, db: Session = Depends(get_db)):
+def create_suite(
+    project_id: str, 
+    payload: SuiteCreate, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
     try:
         proj_uuid = uuid.UUID(project_id)
     except ValueError:
@@ -87,6 +193,9 @@ def create_suite(project_id: str, payload: SuiteCreate, db: Session = Depends(ge
     project = db.query(models.Project).filter(models.Project.id == proj_uuid).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+        
+    # Enforce role verification
+    check_user_role(db, user, project_id, ["admin", "editor"])
     
     suite = models.TestSuite(
         id=uuid.uuid4(),
@@ -106,7 +215,12 @@ def create_suite(project_id: str, payload: SuiteCreate, db: Session = Depends(ge
     }
 
 @app.post("/v1/suites/{suite_id}/cases", status_code=201)
-def upload_cases(suite_id: str, payload: BatchCasesCreate, db: Session = Depends(get_db)):
+def upload_cases(
+    suite_id: str, 
+    payload: BatchCasesCreate, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
     try:
         suite_uuid = uuid.UUID(suite_id)
     except ValueError:
@@ -115,6 +229,9 @@ def upload_cases(suite_id: str, payload: BatchCasesCreate, db: Session = Depends
     suite = db.query(models.TestSuite).filter(models.TestSuite.id == suite_uuid).first()
     if not suite:
         raise HTTPException(status_code=404, detail="TestSuite not found")
+        
+    # Enforce role verification
+    check_user_role(db, user, str(suite.project_id), ["admin", "editor"])
     
     created_cases = []
     for c in payload.cases:
@@ -131,7 +248,11 @@ def upload_cases(suite_id: str, payload: BatchCasesCreate, db: Session = Depends
     return {"message": f"Successfully uploaded {len(created_cases)} test cases"}
 
 @app.post("/v1/runs", status_code=202)
-def trigger_run(payload: RunCreate, db: Session = Depends(get_db)):
+def trigger_run(
+    payload: RunCreate, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
     try:
         suite_uuid = uuid.UUID(payload.suite_id)
     except ValueError:
@@ -140,6 +261,9 @@ def trigger_run(payload: RunCreate, db: Session = Depends(get_db)):
     suite = db.query(models.TestSuite).filter(models.TestSuite.id == suite_uuid).first()
     if not suite:
         raise HTTPException(status_code=404, detail="TestSuite not found")
+        
+    # Enforce role verification
+    check_user_role(db, user, str(suite.project_id), ["admin", "editor"])
     
     run = models.Run(
         id=uuid.uuid4(),
@@ -159,7 +283,11 @@ def trigger_run(payload: RunCreate, db: Session = Depends(get_db)):
     return {"run_id": str(run.id), "status": "PENDING"}
 
 @app.get("/v1/runs/{run_id}")
-def get_run_status(run_id: str, db: Session = Depends(get_db)):
+def get_run_status(
+    run_id: str, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
     try:
         run_uuid = uuid.UUID(run_id)
     except ValueError:
@@ -168,6 +296,9 @@ def get_run_status(run_id: str, db: Session = Depends(get_db)):
     run = db.query(models.Run).filter(models.Run.id == run_uuid).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+        
+    # Enforce role verification
+    check_user_role(db, user, str(run.suite.project_id), ["admin", "editor", "viewer"])
     
     results_count = len(run.results)
     avg_score = 0.0
@@ -194,7 +325,11 @@ def get_run_status(run_id: str, db: Session = Depends(get_db)):
     }
 
 @app.get("/v1/runs/{run_id}/results")
-def get_run_results(run_id: str, db: Session = Depends(get_db)):
+def get_run_results(
+    run_id: str, 
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
     try:
         run_uuid = uuid.UUID(run_id)
     except ValueError:
@@ -203,6 +338,9 @@ def get_run_results(run_id: str, db: Session = Depends(get_db)):
     run = db.query(models.Run).filter(models.Run.id == run_uuid).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+        
+    # Enforce role verification
+    check_user_role(db, user, str(run.suite.project_id), ["admin", "editor", "viewer"])
         
     outcomes = []
     for res in run.results:

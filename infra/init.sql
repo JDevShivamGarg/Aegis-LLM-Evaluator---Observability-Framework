@@ -86,7 +86,35 @@ CREATE TABLE IF NOT EXISTS alert_configs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_project_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    role VARCHAR(50) NOT NULL, -- 'admin', 'editor', 'viewer'
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, project_id)
+);
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    suite_id UUID NOT NULL REFERENCES test_suites(id) ON DELETE CASCADE,
+    version_tag VARCHAR(50) NOT NULL,
+    template_body TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_suite ON runs(suite_id);
 CREATE INDEX IF NOT EXISTS idx_test_results_run ON test_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_metric_scores_result ON metric_scores(test_result_id);
 CREATE INDEX IF NOT EXISTS idx_alert_configs_suite ON alert_configs(suite_id);
+CREATE INDEX IF NOT EXISTS idx_user_project_roles ON user_project_roles(user_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions ON prompt_versions(suite_id);

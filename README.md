@@ -135,5 +135,20 @@ See the Actions template in [.github/workflows/aegis-gate.yml](file:///C:/Users/
 
 ---
 
+## Design Philosophy & Trust Model (FAQ)
+
+### How is Aegis different from other AI observability frameworks?
+* **Air-Gapped Telemetry**: Commercial platforms (like LangSmith or Braintrust) require shipping prompt payloads, retrieved sources, and outputs to external SaaS servers. Aegis performs all core checks (embeddings similarity, toxicity check) locally within container bounds.
+* **Pipeline Gating System**: Unlike evaluation libraries (like Ragas) that have no persistent storage or scheduling queues, or visual tools (like Promptfoo) that lack continuous REST interfaces, Aegis acts as a complete gate server with built-in background workers, visual trends, and database telemetry tracking.
+* **Non-Blocking Execution**: Out-of-band evaluation requests are processed asynchronously using Redis/Celery queue structures, ensuring validation latency does not affect user-facing agent runtime.
+
+### Who guarantees the LLM judge itself is not compromised or biased?
+* **Multi-Judge Consensus**: Aegis runs parallel judge API calls in Celery, calculating a mathematical mean score to dilute model bias and rate-limiting limits.
+* **Programmatic Assertions**: Programmatic checks (regex assertions, structured JSON validation, safety classifier filters) execute locally. These hard constraints cannot be bypassed by conversation context.
+* **Semantic grounding checks**: To detect hallucinations in RAG, the framework calculates sentence-level cosine similarities against retrieved knowledge texts locally, grounding scoring in factual documents.
+* **Human-in-the-Loop Audit**: Version diff histories and performance trends on the dashboard allow developers to identify systemic shifts in judge behavior and calibrate thresholds over time.
+
+---
+
 ## License
 Open Source.

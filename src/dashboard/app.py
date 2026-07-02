@@ -296,6 +296,32 @@ def delete_alert(alert_id):
         conn.execute(text(query), {"alert_id": alert_id})
         conn.commit()
 
+def load_prompt_versions(suite_id):
+    query = """
+        SELECT id, version_tag, template_body, description, created_at
+        FROM prompt_versions
+        WHERE suite_id = :suite_id
+        ORDER BY created_at DESC
+    """
+    with engine.connect() as conn:
+        df = pd.read_sql(text(query), conn, params={"suite_id": suite_id})
+    return df
+
+def save_prompt_version(suite_id, version_tag, template_body, description):
+    query = """
+        INSERT INTO prompt_versions (suite_id, version_tag, template_body, description)
+        VALUES (:suite_id, :version_tag, :template_body, :description)
+    """
+    with engine.connect() as conn:
+        conn.execute(text(query), {"suite_id": suite_id, "version_tag": version_tag, "template_body": template_body, "description": description})
+        conn.commit()
+
+def delete_prompt_version(version_id):
+    query = "DELETE FROM prompt_versions WHERE id = :version_id"
+    with engine.connect() as conn:
+        conn.execute(text(query), {"version_id": version_id})
+        conn.commit()
+
 # === Main Screen Context Selection (No Sidebar) ===
 projects = load_projects()
 
@@ -364,8 +390,8 @@ else:
             st.markdown("<br>", unsafe_allow_html=True)
 
             # --- Multi-Tab Obervability Views ---
-            st_tab_overview, st_tab_comparison, st_tab_heatmap, st_tab_alerts = st.tabs([
-                "📈 Suite Overview", "⚖️ A/B Comparison", "🎛️ Regression Heatmap", "🔔 Alert Configs"
+            st_tab_overview, st_tab_comparison, st_tab_heatmap, st_tab_alerts, st_tab_prompts = st.tabs([
+                "📈 Suite Overview", "⚖️ A/B Comparison", "🎛️ Regression Heatmap", "🔔 Alert Configs", "📝 Prompt History"
             ])
 
             # TAB 1: OVERVIEW
@@ -594,4 +620,87 @@ else:
                             if st.button("Delete Target", key=f"del_{alert_row['id']}"):
                                 delete_alert(alert_row["id"])
                                 st.success("Alert target deleted successfully!")
+                                st.rerun()
+
+            # TAB 5: PROMPT HISTORY
+            with st_tab_prompts:
+                st.subheader("Prompt Template History & Version Diffs")
+                
+                # Render Register Prompt Version Form
+                with st.form("register_prompt_form"):
+                    st.markdown("**Register New Prompt Version**")
+                    col_tag, col_desc = st.columns([1, 2])
+                    with col_tag:
+                        version_tag = st.text_input("Version Tag", placeholder="e.g. v1.4-rag")
+                    with col_desc:
+                        prompt_desc = st.text_input("Version Description", placeholder="Optional description of template adjustments")
+                    
+                    template_body = st.text_area("Prompt Template Body", height=150, placeholder="Write your system or user prompt template here...")
+                    submit = st.form_submit_button("Register Prompt Version")
+                    
+                    if submit:
+                        if not version_tag or not template_body:
+                            st.error("Version Tag and Prompt Template Body are required.")
+                        else:
+                            save_prompt_version(selected_suite_id, version_tag, template_body, prompt_desc)
+                            st.success(f"Registered prompt version {version_tag} successfully!")
+                            st.rerun()
+
+                st.markdown("---")
+
+                # Comparison visualizer section
+                versions_df = load_prompt_versions(selected_suite_id)
+                if versions_df.empty:
+                    st.info("No prompt versions registered for this test suite.")
+                else:
+                    st.markdown("### Compare Prompt Templates")
+                    
+                    # Choose A and B versions
+                    col_v_a, col_v_b = st.columns(2)
+                    version_choices = [(row["id"], f"{row['version_tag']} ({row['created_at'].strftime('%Y-%m-%d %H:%M')})") for _, row in versions_df.iterrows()]
+                    
+                    with col_v_a:
+                        sel_v_a = st.selectbox("Baseline Version (A)", version_choices, format_func=lambda x: x[1], key="diff_v_a")[0]
+                    with col_v_b:
+                        sel_v_b = st.selectbox("Comparison Version (B)", version_choices, index=min(1, len(version_choices)-1), format_func=lambda x: x[1], key="diff_v_b")[0]
+                    
+                    if sel_v_a and sel_v_b:
+                        row_a = versions_df[versions_df["id"] == sel_v_a].iloc[0]
+                        row_b = versions_df[versions_df["id"] == sel_v_b].iloc[0]
+                        
+                        st.markdown(f"Comparing `{row_a['version_tag']}` (A) vs `{row_b['version_tag']}` (B):")
+                        
+                        # Generate and render colorized diff
+                        import difflib
+                        diff = list(difflib.ndiff(row_a["template_body"].splitlines(), row_b["template_body"].splitlines()))
+                        html_diff = []
+                        for line in diff:
+                            if line.startswith("+ "):
+                                html_diff.append(f"<div style='color: #46b856; background-color: rgba(46, 160, 67, 0.15); font-family: monospace; padding: 2px 4px; white-space: pre-wrap;'>{line}</div>")
+                            elif line.startswith("- "):
+                                html_diff.append(f"<div style='color: #f44336; background-color: rgba(244, 67, 54, 0.15); font-family: monospace; padding: 2px 4px; white-space: pre-wrap;'>{line}</div>")
+                            elif line.startswith("? "):
+                                continue
+                            else:
+                                html_diff.append(f"<div style='color: #8b949e; font-family: monospace; padding: 2px 4px; white-space: pre-wrap;'>{line}</div>")
+                                
+                        st.markdown(
+                            f"<div style='background-color: #0b0e14; border: 1px solid #1f242e; border-radius: 6px; padding: 10px; max-height: 400px; overflow-y: auto; margin-bottom: 20px;'>{''.join(html_diff)}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                    st.markdown("---")
+                    st.markdown("### Version Registry History")
+                    for _, v_row in versions_df.iterrows():
+                        col_v_info, col_v_del = st.columns([5, 1])
+                        with col_v_info:
+                            st.markdown(f"**Version**: `{v_row['version_tag']}` | **Date**: `{v_row['created_at'].strftime('%Y-%m-%d %H:%M')}`")
+                            if v_row['description']:
+                                st.caption(f"Description: {v_row['description']}")
+                            with st.expander("View Template Body"):
+                                st.code(v_row["template_body"], language="text")
+                        with col_v_del:
+                            if st.button("Delete Version", key=f"del_v_{v_row['id']}"):
+                                delete_prompt_version(v_row["id"])
+                                st.success("Prompt version deleted successfully!")
                                 st.rerun()
