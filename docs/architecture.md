@@ -98,4 +98,26 @@ Evaluation pipelines are instrumented to export tracing spans to centralized col
 * **FastAPI Request Spans**: Captures inbound HTTP REST requests and correlates them to user IDs.
 * **Celery Worker Execution Spans**: Records isolated spans for rule assertions (`aegis.rule_assertion`), semantic similarities (`aegis.embedding_similarity`), toxicity classifiers, grounding similarity, and parallel LLM judge consensus calculations.
 * **Resiliency Fallbacks**: If OTel backend exports fail, the logging system gracefully downgrades to local mock trace decorators to prevent throwing exceptions in execution loops.
+
+---
+
+## 7. Redis Caching & Deduplication Layer
+
+Aegis includes a high-performance response caching mechanism inside the background workers to eliminate redundant LLM API calls:
+1. **Deterministic Hashing**: When a test case is evaluated, Aegis generates a SHA256 key matching:
+   `SHA256(model_name + prompt_version + input_prompt + assertion_rules_json)`
+2. **Key-Value Lookup**: Before querying any target model or running evaluations, the Celery worker queries Redis. If a matching key is found:
+   - The worker loads the cached prompt completion, latency, and costs directly.
+   - Sets the database `cache_hit` flag to `true` on the resulting record.
+3. **Invalidation**: Cache entries have a default 24-hour Time-to-Live (TTL). Administrators can manually flush the cache at any time via `POST /v1/cache/invalidate`.
+
+---
+
+## 8. KEDA Worker Queue Autoscaling
+
+Aegis handles variable run sizes (from a single test prompt to thousands of enqueued cases) by scaling worker pods dynamically using Kubernetes Event-driven Autoscaling (KEDA):
+* **Trigger Target**: The `ScaledObject` monitors the length of the Redis list named `celery`.
+* **Scaling Policy**:
+  - **Scale Up**: Expands from 1 pod to a maximum of 8 pods when the enqueued task queue depth exceeds 10 messages.
+  - **Scale Down**: Scales back down to 1 pod after a cooldown period of 5 minutes (300 seconds) of worker idle time.
 ```

@@ -138,3 +138,26 @@ aegis_crew_callback.after_agent_execution(
 )
 ```
 
+---
+
+## 4. Batch Test Case Uploading via API
+
+To upload large evaluation datasets containing edge cases, you can POST a `.csv` or `.jsonl` file directly to the Central API Server.
+
+### A. Uploading CSV Files
+Ensure your CSV file contains columns for `input_prompt`, `expected_output`, and `assertion_rules` (formatted as a JSON string):
+```bash
+curl -X POST "http://localhost:8000/v1/suites/<TEST_SUITE_UUID>/upload" \
+     -H "Authorization: Bearer <JWT_ACCESS_TOKEN>" \
+     -F "file=@/path/to/test_cases.csv"
+```
+
+### B. Uploading JSONL Files
+Each line of the JSONL file must be a standalone JSON object:
+```bash
+curl -X POST "http://localhost:8000/v1/suites/<TEST_SUITE_UUID>/upload" \
+     -H "Authorization: Bearer <JWT_ACCESS_TOKEN>" \
+     -F "file=@/path/to/test_cases.jsonl"
+```
+
+
