@@ -77,6 +77,7 @@ sequenceDiagram
     SDK->>API: POST /v1/runs/{id}/results (or background worker trigger)
     API->>DB: Update run results & calculated metric scores
     API-->>SDK: 200 OK
+```
 
 ---
 
@@ -120,4 +121,3 @@ Aegis handles variable run sizes (from a single test prompt to thousands of enqu
 * **Scaling Policy**:
   - **Scale Up**: Expands from 1 pod to a maximum of 8 pods when the enqueued task queue depth exceeds 10 messages.
   - **Scale Down**: Scales back down to 1 pod after a cooldown period of 5 minutes (300 seconds) of worker idle time.
-```
