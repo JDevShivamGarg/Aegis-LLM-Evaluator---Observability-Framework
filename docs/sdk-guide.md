@@ -79,3 +79,62 @@ run = client.trigger_run(
 )
 print(f"Triggered Run ID: {run['run_id']}")
 ```
+
+---
+
+## 3. Framework Telemetry Callbacks
+
+Aegis includes pre-built callback integrations to automatically record prompts, completions, and token usages from popular Python agentic frameworks.
+
+### A. LangChain Integration (`AegisLangChainCallback`)
+
+Pass the Aegis callback handler to your chain execution blocks:
+
+```python
+from langchain_openai import ChatOpenAI
+from src.services.callbacks import AegisLangChainCallback
+
+# Initialize the callback handler
+aegis_callback = AegisLangChainCallback(
+    base_url="http://127.0.0.1:8000",
+    suite_id="<TEST_SUITE_UUID>",
+    prompt_version="v1.4-rag-eval",
+    auth_token="<JWT_BEARER_TOKEN>"
+)
+
+# Pass the handler to the LLM or Chain call
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.0,
+    callbacks=[aegis_callback]
+)
+
+response = llm.invoke("What is the refund policy for active subscriptions?")
+print(response.content)
+```
+
+### B. CrewAI Integration (`AegisCrewAICallback`)
+
+Hook task completions to log agent telemetry:
+
+```python
+from crewai import Agent, Task, Crew
+from src.services.callbacks import AegisCrewAICallback
+
+aegis_crew_callback = AegisCrewAICallback(
+    base_url="http://127.0.0.1:8000",
+    suite_id="<TEST_SUITE_UUID>",
+    prompt_version="v1.1-crew",
+    auth_token="<JWT_BEARER_TOKEN>"
+)
+
+# Capture task outcomes asynchronously
+task_output = "The customer's transaction logs indicate..."
+aegis_crew_callback.after_agent_execution(
+    agent_name="Triage Specialist",
+    task_description="Verify double charge",
+    result_output=task_output,
+    model_name="llama-3.1-8b-instant"
+)
+```
+

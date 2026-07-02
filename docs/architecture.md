@@ -77,4 +77,25 @@ sequenceDiagram
     SDK->>API: POST /v1/runs/{id}/results (or background worker trigger)
     API->>DB: Update run results & calculated metric scores
     API-->>SDK: 200 OK
+
+---
+
+## 5. Multi-Tenant Role-Based Access Control (RBAC)
+
+Aegis implements project-level resource isolation through a self-contained JSON Web Token (JWT) verification guard:
+
+1. **Creator Ownership**: The user who initiates a project via `POST /v1/projects` is automatically registered as the Project `admin` in `user_project_roles`.
+2. **Access Gating**: Routes are guarded via dependency filters:
+   * **`admin` / `editor`**: Granted permissions to register new prompt versions, create test suites, batch-upload test cases, and trigger parallel evaluation runs.
+   * **`viewer`**: Granted read-only permission to query metric scores, view output comparisons, and render heatmaps.
+3. **Roles Management**: Project administrators can dynamically assign permissions to other registered users by sending payloads to the `/v1/projects/{project_id}/roles` endpoint.
+
+---
+
+## 6. OpenTelemetry Instrumentation
+
+Evaluation pipelines are instrumented to export tracing spans to centralized collectors (e.g. Jaeger, Grafana Tempo):
+* **FastAPI Request Spans**: Captures inbound HTTP REST requests and correlates them to user IDs.
+* **Celery Worker Execution Spans**: Records isolated spans for rule assertions (`aegis.rule_assertion`), semantic similarities (`aegis.embedding_similarity`), toxicity classifiers, grounding similarity, and parallel LLM judge consensus calculations.
+* **Resiliency Fallbacks**: If OTel backend exports fail, the logging system gracefully downgrades to local mock trace decorators to prevent throwing exceptions in execution loops.
 ```
