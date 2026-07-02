@@ -118,6 +118,14 @@ Aegis includes a full-width real-time dashboard built with Streamlit and Plotly 
 
 ---
 
+## Scale & Performance
+
+* **Batch uploads**: Upload datasets containing thousands of test cases in `.csv` or `.jsonl` files via `POST /v1/suites/{suite_id}/upload`.
+* **Redis Caching**: Deterministic SHA256 caching bypasses duplicate LLM evaluations. Results retrieve in sub-milliseconds with `cache_hit = true` status flags. Clear cached lookups at any time via `POST /v1/cache/invalidate`.
+* **Kubernetes Orchestration**: Pre-configured manifests in `infra/k8s/` orchestrate cluster pods, including KEDA autoscale triggers for dynamic worker expansion under load.
+
+---
+
 ## CI/CD Regression Gating
 
 Integrate prompt gating into code delivery pipelines using the python client runner script:

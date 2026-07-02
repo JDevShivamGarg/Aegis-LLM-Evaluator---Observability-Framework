@@ -254,7 +254,7 @@ def load_heatmap_data(suite_id):
     run_ids_str = ", ".join([f"'{r}'" for r in run_ids])
     
     scores_query_formatted = f"""
-        SELECT substring(tc.input_prompt from 1 for 40) || '...' as case_label, 
+        SELECT substring(tc.id::text from 1 for 4) || ': ' || substring(tc.input_prompt from 1 for 30) || '...' as case_label, 
                r.prompt_version || ' (' || r.model_name || ')' as run_label, 
                COALESCE(AVG(sc.score), 0.0) as avg_score
         FROM test_results res

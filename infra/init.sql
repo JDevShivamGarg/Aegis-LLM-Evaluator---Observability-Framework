@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS test_results (
     completion_tokens INT,
     total_tokens INT,
     estimated_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

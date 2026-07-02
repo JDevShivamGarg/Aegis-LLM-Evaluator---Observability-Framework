@@ -1,5 +1,8 @@
 import time
 import uuid
+import json
+import hashlib
+import redis
 from celery import Celery
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
@@ -137,15 +140,68 @@ def run_evaluation(run_id_str: str) -> str:
         # Load Custom Evaluator Plugins
         custom_plugins = load_custom_plugins()
 
-        for case in cases:
-            # 1. Execute Target LLM Call
-            actual_output, prompt_tokens, completion_tokens, total_tokens, latency_ms = call_target_llm(
-                model_name=run.model_name,
-                prompt=case.input_prompt
-            )
+        # Setup Redis Client for result caching
+        r_client = None
+        try:
+            r_client = redis.from_url(settings.REDIS_URL)
+        except Exception as r_err:
+            print(f"[Aegis Cache] Failed to connect to Redis cache: {r_err}")
 
-            # Calculate token cost
-            cost_usd = calculate_token_cost(db, run.model_name, prompt_tokens, completion_tokens)
+        for case in cases:
+            # Check Caching & Deduplication
+            cache_hit = False
+            actual_output = None
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+            latency_ms = 0
+            cost_usd = 0.0
+
+            cache_key = None
+            if r_client:
+                try:
+                    rules_str = json.dumps(case.assertion_rules or [], sort_keys=True)
+                    cache_input = f"{run.model_name}:{run.prompt_version}:{case.input_prompt}:{rules_str}"
+                    cache_key = f"aegis:cache:{hashlib.sha256(cache_input.encode('utf-8')).hexdigest()}"
+                    
+                    cached_val = r_client.get(cache_key)
+                    if cached_val:
+                        cache_data = json.loads(cached_val.decode("utf-8"))
+                        actual_output = cache_data.get("actual_output")
+                        prompt_tokens = cache_data.get("prompt_tokens", 0)
+                        completion_tokens = cache_data.get("completion_tokens", 0)
+                        total_tokens = cache_data.get("total_tokens", 0)
+                        latency_ms = cache_data.get("latency_ms", 0)
+                        cost_usd = cache_data.get("estimated_cost_usd", 0.0)
+                        cache_hit = True
+                        print(f"[Aegis Cache] Cache Hit for prompt: {case.input_prompt[:30]}...")
+                except Exception as c_err:
+                    print(f"[Aegis Cache] Read error: {c_err}")
+
+            if not cache_hit:
+                # 1. Execute Target LLM Call
+                actual_output, prompt_tokens, completion_tokens, total_tokens, latency_ms = call_target_llm(
+                    model_name=run.model_name,
+                    prompt=case.input_prompt
+                )
+
+                # Calculate token cost
+                cost_usd = calculate_token_cost(db, run.model_name, prompt_tokens, completion_tokens)
+
+                # Write to Redis Cache (24h TTL)
+                if r_client and cache_key:
+                    try:
+                        cache_payload = {
+                            "actual_output": actual_output,
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": total_tokens,
+                            "latency_ms": latency_ms,
+                            "estimated_cost_usd": cost_usd
+                        }
+                        r_client.setex(cache_key, 86400, json.dumps(cache_payload))
+                    except Exception as c_err:
+                        print(f"[Aegis Cache] Write error: {c_err}")
 
             # 2. Create Test Result record
             result = TestResult(
@@ -157,7 +213,8 @@ def run_evaluation(run_id_str: str) -> str:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
-                estimated_cost_usd=cost_usd
+                estimated_cost_usd=cost_usd,
+                cache_hit=cache_hit
             )
             db.add(result)
             db.flush()  # Generate result.id for foreign keys

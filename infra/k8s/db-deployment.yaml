@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pgsql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aegis-db
+  template:
+    metadata:
+      labels:
+        app: aegis-db
+    spec:
+      containers:
+        - name: db
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_DB
+              value: eval_db
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pgsql-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pgsql-storage
+          persistentVolumeClaim:
+            claimName: pgsql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-db
+spec:
+  ports:
+    - port: 5432
+  selector:
+    app: aegis-db

@@ -1,7 +1,10 @@
 import uuid
+import csv
+import json
+import io
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from src.core.database import get_db
@@ -214,6 +217,102 @@ def create_suite(
         "created_at": suite.created_at
     }
 
+@app.post("/v1/suites/{suite_id}/upload", status_code=201)
+def upload_cases_file(
+    suite_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user)
+):
+    try:
+        suite_uuid = uuid.UUID(suite_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid suite UUID format")
+        
+    suite = db.query(models.TestSuite).filter(models.TestSuite.id == suite_uuid).first()
+    if not suite:
+        raise HTTPException(status_code=404, detail="TestSuite not found")
+        
+    # Enforce role verification
+    check_user_role(db, user, str(suite.project_id), ["admin", "editor"])
+    
+    contents = file.file.read()
+    try:
+        text_content = contents.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Failed to decode file. Must be UTF-8 encoded text.")
+        
+    cases_to_insert = []
+    filename = file.filename.lower() if file.filename else ""
+    
+    if filename.endswith(".csv"):
+        reader = csv.DictReader(io.StringIO(text_content))
+        for row in reader:
+            input_prompt = row.get("input_prompt") or row.get("input") or row.get("prompt")
+            if not input_prompt:
+                continue
+            
+            expected_output = row.get("expected_output") or row.get("expected") or row.get("output")
+            rules_raw = row.get("assertion_rules") or row.get("rules") or "[]"
+            
+            assertion_rules = []
+            if rules_raw.strip():
+                try:
+                    assertion_rules = json.loads(rules_raw)
+                    if not isinstance(assertion_rules, list):
+                        assertion_rules = []
+                except Exception:
+                    assertion_rules = [{"type": "contains", "value": rules_raw.strip()}]
+                    
+            case = models.TestCase(
+                id=uuid.uuid4(),
+                suite_id=suite_uuid,
+                input_prompt=input_prompt,
+                expected_output=expected_output,
+                assertion_rules=assertion_rules
+            )
+            cases_to_insert.append(case)
+            
+    elif filename.endswith(".jsonl"):
+        lines = text_content.splitlines()
+        for idx, line in enumerate(lines):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON content on line {idx + 1}")
+                
+            input_prompt = data.get("input_prompt") or data.get("input") or data.get("prompt")
+            if not input_prompt:
+                continue
+                
+            expected_output = data.get("expected_output") or data.get("expected") or data.get("output")
+            assertion_rules = data.get("assertion_rules") or data.get("rules") or []
+            
+            if not isinstance(assertion_rules, list):
+                assertion_rules = []
+                
+            case = models.TestCase(
+                id=uuid.uuid4(),
+                suite_id=suite_uuid,
+                input_prompt=input_prompt,
+                expected_output=expected_output,
+                assertion_rules=assertion_rules
+            )
+            cases_to_insert.append(case)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a .csv or .jsonl file.")
+        
+    if not cases_to_insert:
+        raise HTTPException(status_code=400, detail="No valid test cases found in uploaded file.")
+        
+    # Bulk save to DB
+    db.bulk_save_objects(cases_to_insert)
+    db.commit()
+    
+    return {"message": f"Successfully batch uploaded {len(cases_to_insert)} test cases"}
+
 @app.post("/v1/suites/{suite_id}/cases", status_code=201)
 def upload_cases(
     suite_id: str, 
@@ -365,6 +464,19 @@ def get_run_results(
             "scores": scores
         })
     return {"run_id": str(run.id), "results": outcomes}
+
+@app.post("/v1/cache/invalidate")
+def invalidate_cache(user: models.User = Depends(get_current_user)):
+    import redis
+    from src.core.config import settings
+    try:
+        r_client = redis.from_url(settings.REDIS_URL)
+        keys = r_client.keys("aegis:cache:*")
+        if keys:
+            r_client.delete(*keys)
+        return {"message": f"Successfully invalidated cache, cleared {len(keys)} entries"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
 
 @app.post("/v1/test-task")
 def trigger_test_task(x: int, y: int):

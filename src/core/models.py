@@ -76,6 +76,7 @@ class TestResult(Base):
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
     estimated_cost_usd = Column(Float, nullable=False, default=0.0)
+    cache_hit = Column(Boolean, nullable=False, default=False)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

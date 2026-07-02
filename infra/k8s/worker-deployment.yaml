@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-worker
+spec:
+  replicas: 1 # Managed dynamically by KEDA Autoscaler
+  selector:
+    matchLabels:
+      app: aegis-worker
+  template:
+    metadata:
+      labels:
+        app: aegis-worker
+    spec:
+      containers:
+        - name: worker
+          image: infra-worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@aegis-db:5432/eval_db"
+            - name: REDIS_URL
+              value: "redis://aegis-redis:6379/0"
+            - name: CELERY_BROKER_URL
+              value: "redis://aegis-redis:6379/0"
+            - name: CELERY_RESULT_BACKEND
+              value: "redis://aegis-redis:6379/0"
+            - name: GROQ_API_KEY
+              value: "gsk-placeholder"
+            - name: OPENAI_API_KEY
+              value: "sk-placeholder"

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aegis-dashboard
+  template:
+    metadata:
+      labels:
+        app: aegis-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: infra-dashboard:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@aegis-db:5432/eval_db"
+            - name: API_URL
+              value: "http://aegis-api:8000"
+          ports:
+            - containerPort: 8501
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-dashboard
+spec:
+  type: NodePort
+  ports:
+    - port: 8501
+      targetPort: 8501
+      nodePort: 30501
+  selector:
+    app: aegis-dashboard
